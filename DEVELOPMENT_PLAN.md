@@ -27,8 +27,8 @@
 - [x] 22 项自动测试及语法检查通过。
 - [x] 在目标 SillyTavern 实装 v1.2.0：设备信息、电量、Open-Meteo、MET Norway、提示词和聊天历史不落盘通过；wttr.in 当前网络偶发超时并正确降级。
 - [x] 创建公开 GitHub 仓库并 push；通过 SillyTavern `/api/extensions/install` 从仓库 URL 安装成功。
-- [ ] push 本轮空值修复后，通过 SillyTavern 扩展更新接口验证 Git 更新。
-- [ ] 导出发布归档并记录 SHA-256。
+- [x] push 空值修复后，通过 SillyTavern `/api/extensions/update` 更新到 `a448e38`，确认假体感 0°C 已消失。
+- [x] 导出 v1.2.0 发布归档；SHA-256 记录在工作区项目状态。
 - [ ] 真实模型生成由用户正常聊天时观察，避免主动产生模型费用或修改现有聊天。
 
 ## 兼容与风险
