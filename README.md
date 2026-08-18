@@ -110,7 +110,7 @@ npm test
 
 ## 当前验证状态
 
-- 22 项自动测试和四个根模块语法检查通过。
-- 目标浏览器实测 Open-Meteo Geocoding/Weather、MET Norway、wttr.in、Nominatim 均可跨域读取；Open-Meteo 与 MET Norway 完整插件链路通过，wttr.in 在当前网络下偶发超时并按不可用降级。
+- 23 项自动测试和四个根模块语法检查通过。
+- 目标浏览器实测 Open-Meteo Geocoding/Weather、MET Norway、wttr.in、Nominatim 均支持 CORS。Open-Meteo 与 MET Norway 完整链路通过；wttr.in 当前链路可连接但经常长时间不返回数据，v1.2.1 在 6 秒后回退 Open-Meteo 并显示明确提示。
 - GitHub 仓库已创建；SillyTavern 1.18.0 已通过仓库 URL 安装成功，安装目录为 `third-party/SillyTavern-Environment-Context`。
 - 设备信息、电量、临时提示词和聊天历史不落盘已通过；真实模型生成尚未执行。

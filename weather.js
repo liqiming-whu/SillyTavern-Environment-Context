@@ -183,16 +183,25 @@ function degreesToDirection(degrees) {
 }
 
 async function fetchJson(url, options = {}, fetchImpl = globalThis.fetch) {
-    if (typeof fetchImpl !== 'function') throw new Error('当前 Node.js 环境没有 fetch');
-    const response = await fetchImpl(url, {
-        ...options,
-        signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
-        headers: {
-            Accept: 'application/json',
-            ...(options.headers || {}),
-        },
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    if (typeof fetchImpl !== 'function') throw new Error('当前浏览器没有 fetch');
+    const { timeoutMs = HTTP_TIMEOUT_MS, ...fetchOptions } = options;
+    let response;
+    try {
+        response = await fetchImpl(url, {
+            ...fetchOptions,
+            signal: AbortSignal.timeout(timeoutMs),
+            headers: {
+                Accept: 'application/json',
+                ...(fetchOptions.headers || {}),
+            },
+        });
+    } catch (error) {
+        if (error?.name === 'TimeoutError' || /timed out|timeout/i.test(String(error?.message || error))) {
+            throw new Error(`${url.hostname} 请求超过 ${Math.round(timeoutMs / 1000)} 秒`);
+        }
+        throw new Error(`${url.hostname} 请求失败：${safeError(error)}`);
+    }
+    if (!response.ok) throw new Error(`${url.hostname} 返回 HTTP ${response.status} ${response.statusText}`);
     const text = await response.text();
     if (new TextEncoder().encode(text).byteLength > MAX_HTTP_BODY_BYTES) throw new Error('HTTP 响应过大');
     try {
@@ -326,7 +335,7 @@ async function fetchWttr(location, requestJson) {
     const url = new URL(`https://wttr.in/${coordinates}`);
     url.searchParams.set('format', 'j1');
     url.searchParams.set('lang', 'zh-cn');
-    const data = await requestJson(url);
+    const data = await requestJson(url, { timeoutMs: 6_000 });
     const current = data?.current_condition?.[0];
     if (!current) throw new Error('wttr.in 没有返回当前天气');
     const localized = queryString(
@@ -348,10 +357,24 @@ async function fetchWttr(location, requestJson) {
 }
 
 async function fetchWeather(provider, location, requestJson) {
-    if (provider === 'open-meteo') return fetchOpenMeteo(location, requestJson);
-    if (provider === 'met-norway') return fetchMetNorway(location, requestJson);
-    if (provider === 'wttr.in') return fetchWttr(location, requestJson);
-    throw new Error(`不支持的天气提供方：${provider}`);
+    try {
+        if (provider === 'open-meteo') return await fetchOpenMeteo(location, requestJson);
+        if (provider === 'met-norway') return await fetchMetNorway(location, requestJson);
+        if (provider === 'wttr.in') return await fetchWttr(location, requestJson);
+        throw new Error(`不支持的天气提供方：${provider}`);
+    } catch (error) {
+        if (provider === 'open-meteo') throw error;
+        const providerError = safeError(error);
+        try {
+            return {
+                ...await fetchOpenMeteo(location, requestJson),
+                fallbackFrom: provider,
+                fallbackError: providerError,
+            };
+        } catch (fallbackError) {
+            throw new Error(`${provider} 失败：${providerError}；Open-Meteo 回退也失败：${safeError(fallbackError)}`);
+        }
+    }
 }
 
 function createStatusService(dependencies = {}) {
@@ -447,6 +470,9 @@ function createStatusService(dependencies = {}) {
                 ), forceRefresh);
                 if (result.weather.stale && result.weather.refreshError) {
                     errors.weather = result.weather.refreshError;
+                }
+                if (result.weather.fallbackFrom) {
+                    result.warnings.weather = `${result.weather.fallbackFrom} 暂不可用（${result.weather.fallbackError}），已回退到 Open-Meteo`;
                 }
                 if (result.weather.timeZone) result.time.timeZone = result.weather.timeZone;
                 else if (result.location.timeZone) result.time.timeZone = result.location.timeZone;

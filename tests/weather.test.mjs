@@ -148,6 +148,24 @@ test('浏览器定位坐标用于反向地理编码和天气并行请求', async
     assert.equal(maxActiveHttp, 2);
 });
 
+test('非 Open-Meteo 提供方失败时回退并给出明确警告', async () => {
+    const service = createStatusService({ requestJson: async (url) => {
+        if (url.hostname === 'geocoding-api.open-meteo.com') {
+            return { results: [{ name: '宜昌市', admin1: '湖北', country: '中国', latitude: 30.71444, longitude: 111.28472, timezone: 'Asia/Shanghai' }] };
+        }
+        if (url.hostname === 'wttr.in') throw new Error('wttr.in 请求超过 6 秒');
+        if (url.hostname === 'api.open-meteo.com') {
+            return { timezone: 'Asia/Shanghai', current: { weather_code: 1, temperature_2m: 31, apparent_temperature: 36, relative_humidity_2m: 65, wind_speed_10m: 6, wind_direction_10m: 90 } };
+        }
+        throw new Error(`unexpected URL ${url}`);
+    } });
+    const status = await service({ weather: '1', provider: 'wttr.in', locationMode: 'manual', location: '宜昌市', force: '1' });
+    assert.equal(status.ok, true);
+    assert.equal(status.weather.source, 'Open-Meteo');
+    assert.equal(status.weather.fallbackFrom, 'wttr.in');
+    assert.match(status.warnings.weather, /wttr\.in.*超过 6 秒.*回退到 Open-Meteo/);
+});
+
 test('自动定位缺少浏览器坐标时返回结构化错误', async () => {
     const service = createStatusService({ requestJson: async () => { throw new Error('should not fetch'); } });
     const status = await service({ weather: '1', provider: 'open-meteo', locationMode: 'auto' });

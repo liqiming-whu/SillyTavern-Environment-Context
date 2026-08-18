@@ -24,8 +24,9 @@
 - [x] 删除 UI/Server 双目录、Server Plugin 和 Termux 安装脚本，整理为单一 UI Extension 根目录。
 - [x] 新增 `device.js`：Client Hints 优先、传统 UA 回退。
 - [x] 新增设备信息设置和提示词条目。
-- [x] 22 项自动测试及语法检查通过。
-- [x] 在目标 SillyTavern 实装 v1.2.0：设备信息、电量、Open-Meteo、MET Norway、提示词和聊天历史不落盘通过；wttr.in 当前网络偶发超时并正确降级。
+- [x] 23 项自动测试及语法检查通过。
+- [x] 在目标 SillyTavern 实装 v1.2.0：设备信息、电量、Open-Meteo、MET Norway、提示词和聊天历史不落盘通过。
+- [x] v1.2.1 定位 `signal timed out`：wttr.in 15 秒零字节，MET 当前正常但可能偶发超时；新增供应商级错误、wttr 6 秒阈值和 Open-Meteo 自动回退。
 - [x] 创建公开 GitHub 仓库并 push；通过 SillyTavern `/api/extensions/install` 从仓库 URL 安装成功。
 - [x] push 空值修复后，通过 SillyTavern `/api/extensions/update` 更新到 `a448e38`，确认假体感 0°C 已消失。
 - [x] 导出 v1.2.0 发布归档；SHA-256 记录在工作区项目状态。
