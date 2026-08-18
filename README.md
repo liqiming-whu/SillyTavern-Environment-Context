@@ -60,8 +60,6 @@ https://github.com/liqiming-whu/SillyTavern-Environment-Context
 
 安装完成后刷新页面，在“扩展”设置中打开“环境上下文”。`manifest.json` 启用了 `auto_update`，后续可使用 SillyTavern 的扩展更新功能。
 
-> Git 仓库发布前，上述 URL 处于待创建状态；当前开发机先使用同结构本地实装验证。
-
 ## 架构
 
 ```text
@@ -112,6 +110,7 @@ npm test
 
 ## 当前验证状态
 
-- 21 项自动测试和四个根模块语法检查通过。
-- 目标浏览器实测 Open-Meteo Geocoding、Open-Meteo Weather、MET Norway、wttr.in、Nominatim 均可跨域读取。
-- 待完成：v1.2.0 根目录结构真机实装、SillyTavern Git URL 安装/更新和真实模型生成验证。
+- 22 项自动测试和四个根模块语法检查通过。
+- 目标浏览器实测 Open-Meteo Geocoding/Weather、MET Norway、wttr.in、Nominatim 均可跨域读取；Open-Meteo 与 MET Norway 完整插件链路通过，wttr.in 在当前网络下偶发超时并按不可用降级。
+- GitHub 仓库已创建；SillyTavern 1.18.0 已通过仓库 URL 安装成功，安装目录为 `third-party/SillyTavern-Environment-Context`。
+- 设备信息、电量、临时提示词和聊天历史不落盘已通过；真实模型生成尚未执行。

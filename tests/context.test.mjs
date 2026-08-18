@@ -48,6 +48,19 @@ test('关闭字段后动态格式不会保留对应行', () => {
     assert.equal(prompt, '【现实环境信息】\n电量：37%');
 });
 
+test('天气空值不会被错误格式化为 0', () => {
+    const prompt = buildEnvironmentPrompt({
+        injectTime: false,
+        injectTimezone: false,
+        injectWeekday: false,
+        injectBattery: false,
+        injectDevice: false,
+        showLocation: false,
+    }, { weather: { condition: '局部多云', temperature: 20, feelsLike: null, humidity: null, windSpeed: null } });
+    assert.match(prompt, /温度：20°C/);
+    assert.doesNotMatch(prompt, /体感：0°C|湿度：0%|风速：0/);
+});
+
 test('陈旧数据在注入文本中显示具体采集时间', () => {
     const prompt = buildEnvironmentPrompt({ injectWeather: false }, {
         battery: {

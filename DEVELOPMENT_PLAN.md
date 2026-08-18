@@ -24,9 +24,10 @@
 - [x] 删除 UI/Server 双目录、Server Plugin 和 Termux 安装脚本，整理为单一 UI Extension 根目录。
 - [x] 新增 `device.js`：Client Hints 优先、传统 UA 回退。
 - [x] 新增设备信息设置和提示词条目。
-- [x] 21 项自动测试及语法检查通过。
-- [ ] 在目标 SillyTavern 实装 v1.2.0 并验证 UI、设备信息、三天气源、定位、电量和聊天历史不落盘。
-- [ ] 创建 GitHub 仓库，push 后通过 SillyTavern Git URL 安装并验证更新。
+- [x] 22 项自动测试及语法检查通过。
+- [x] 在目标 SillyTavern 实装 v1.2.0：设备信息、电量、Open-Meteo、MET Norway、提示词和聊天历史不落盘通过；wttr.in 当前网络偶发超时并正确降级。
+- [x] 创建公开 GitHub 仓库并 push；通过 SillyTavern `/api/extensions/install` 从仓库 URL 安装成功。
+- [ ] push 本轮空值修复后，通过 SillyTavern 扩展更新接口验证 Git 更新。
 - [ ] 导出发布归档并记录 SHA-256。
 - [ ] 真实模型生成由用户正常聊天时观察，避免主动产生模型费用或修改现有聊天。
 

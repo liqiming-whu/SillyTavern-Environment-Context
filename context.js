@@ -150,24 +150,24 @@ function appendWeatherLines(lines, settings, weather, location) {
     if (settings.showCondition) {
         lines.push(`天气：${sanitizeInline(weather.condition || '暂不可用', 80)}`);
     }
-    if (settings.showTemperature && Number.isFinite(Number(weather.temperature))) {
+    if (settings.showTemperature && hasFiniteNumber(weather.temperature)) {
         let temperature = `温度：${formatNumber(weather.temperature)}°C`;
-        if (settings.showFeelsLike && Number.isFinite(Number(weather.feelsLike))) {
+        if (settings.showFeelsLike && hasFiniteNumber(weather.feelsLike)) {
             temperature += `（体感：${formatNumber(weather.feelsLike)}°C）`;
         }
         lines.push(temperature);
     }
-    if (settings.showHumidity && Number.isFinite(Number(weather.humidity))) {
+    if (settings.showHumidity && hasFiniteNumber(weather.humidity)) {
         lines.push(`湿度：${formatNumber(weather.humidity)}%`);
     }
-    if (settings.showWind && Number.isFinite(Number(weather.windSpeed))) {
+    if (settings.showWind && hasFiniteNumber(weather.windSpeed)) {
         const direction = sanitizeInline(weather.windDirection || '', 24);
         lines.push(`风速：${formatNumber(weather.windSpeed)} km/h${direction ? ` ${direction}` : ''}`);
     }
 }
 
 function appendBatteryLines(lines, settings, battery) {
-    if (!battery || !Number.isFinite(Number(battery.percentage))) {
+    if (!battery || !hasFiniteNumber(battery.percentage)) {
         lines.push('电量：暂不可用');
         return;
     }
@@ -189,6 +189,10 @@ function appendDeviceLines(lines, settings, device) {
     if (settings.showDeviceName) lines.push(`设备名称：${displayName}`);
     if (settings.showDeviceModel) lines.push(`设备型号：${model}`);
     if (settings.showDevicePlatform) lines.push(`平台：${platform}`);
+}
+
+function hasFiniteNumber(value) {
+    return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
 }
 
 function formatNumber(value) {
