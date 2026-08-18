@@ -27,6 +27,7 @@
 - [x] 23 项自动测试及语法检查通过。
 - [x] 在目标 SillyTavern 实装 v1.2.0：设备信息、电量、Open-Meteo、MET Norway、提示词和聊天历史不落盘通过。
 - [x] v1.2.1 定位 `signal timed out`：wttr.in 15 秒零字节，MET 当前正常但可能偶发超时；新增供应商级错误、wttr 6 秒阈值和 Open-Meteo 自动回退。
+- [x] v1.3.0 新增反向地址解析供应商设置：auto/Nominatim/BigDataCloud/Photon；auto 按固定顺序容错，地址缓存键包含供应商；设置只在浏览器自动定位时显示。三个真实端点 CORS 200，待 Git 安装实机回归。
 - [x] 创建公开 GitHub 仓库并 push；通过 SillyTavern `/api/extensions/install` 从仓库 URL 安装成功。
 - [x] push 空值修复后，通过 SillyTavern `/api/extensions/update` 更新到 `a448e38`，确认假体感 0°C 已消失。
 - [x] 导出 v1.2.0 发布归档；SHA-256 记录在工作区项目状态。

@@ -7,6 +7,7 @@
 - 时间：使用 SillyTavern 官方 `{{date}}`、`{{time}}`、`{{weekday}}` 宏。
 - 天气：Open-Meteo、MET Norway、wttr.in，均不需要 API Key。
 - 地点：手动城市或浏览器 Geolocation API；自动定位默认缓存 10 分钟。
+- 反向地址解析：自动、Nominatim、BigDataCloud、Photon；自动模式按 Nominatim → BigDataCloud → Photon 顺序容错。该设置只在“浏览器设备定位”时显示。
 - 电量：浏览器 Battery Status API，每次生成直接读取，不缓存。
 - 设备信息：设备名称、设备型号和平台，可分别开关。
 - 注入位置：系统提示词区域、聊天内临时系统消息、作者注释风格；默认聊天内深度 1。
@@ -91,7 +92,7 @@ SillyTavern UI Extension
 
 - 电量和设备信息只在当前浏览器读取，不发送给外部服务。
 - 手动地点发送给 Open-Meteo Geocoding。
-- 自动定位坐标发送给当前天气服务，并发送给 OpenStreetMap Nominatim 以显示城市。
+- 自动定位坐标发送给当前天气服务；为显示地址，还会按设置发送给 Nominatim、BigDataCloud 或 Photon。自动模式只在前一服务失败时尝试下一项。
 - 提示词只参与请求上下文，不创建聊天消息。
 
 ## 开发与测试
@@ -110,7 +111,7 @@ npm test
 
 ## 当前验证状态
 
-- 23 项自动测试和四个根模块语法检查通过。
-- 目标浏览器实测 Open-Meteo Geocoding/Weather、MET Norway、wttr.in、Nominatim 均支持 CORS。Open-Meteo 与 MET Norway 完整链路通过；wttr.in 当前链路可连接但经常长时间不返回数据，v1.2.1 在 6 秒后回退 Open-Meteo 并显示明确提示。
+- 25 项自动测试和四个根模块语法检查通过。
+- 目标浏览器实测 Open-Meteo Geocoding/Weather、MET Norway、wttr.in、Nominatim、BigDataCloud、Photon 均支持 CORS。Nominatim、BigDataCloud、Photon 已分别返回宜昌地址；Photon 不支持 `lang=zh` 参数，插件改用浏览器语言请求并允许英文地址降级。Open-Meteo 与 MET Norway 完整链路通过；wttr.in 当前链路可连接但经常长时间不返回数据，v1.2.1 起在 6 秒后回退 Open-Meteo。
 - GitHub 仓库已创建；SillyTavern 1.18.0 已通过仓库 URL 安装成功，安装目录为 `third-party/SillyTavern-Environment-Context`。
 - 设备信息、电量、临时提示词和聊天历史不落盘已通过；真实模型生成尚未执行。

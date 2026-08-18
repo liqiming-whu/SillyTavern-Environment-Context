@@ -237,25 +237,101 @@ async function geocodeManualLocation(name, requestJson) {
     };
 }
 
-async function reverseGeocode(latitude, longitude, requestJson) {
+const REVERSE_GEOCODER_ORDER = ['nominatim', 'bigdatacloud', 'photon'];
+const REVERSE_GEOCODER_NAMES = {
+    nominatim: 'Nominatim',
+    bigdatacloud: 'BigDataCloud',
+    photon: 'Photon',
+};
+
+function makeAddress(provider, city, region, country, fallbackLabel = '') {
+    const normalizedCity = queryString(city, '', 80);
+    const normalizedRegion = queryString(region, '', 80);
+    const normalizedCountry = queryString(country, '', 80);
+    const parts = dedupeParts([normalizedCity, normalizedRegion, normalizedCountry]);
+    const label = parts.join(' / ') || queryString(fallbackLabel, '', 160);
+    if (!label) throw new Error(`${REVERSE_GEOCODER_NAMES[provider]} 没有返回有效地址`);
+    return {
+        label,
+        city: normalizedCity,
+        region: normalizedRegion,
+        country: normalizedCountry,
+        addressProvider: provider,
+    };
+}
+
+async function reverseGeocodeNominatim(latitude, longitude, requestJson) {
     const url = new URL('https://nominatim.openstreetmap.org/reverse');
     url.searchParams.set('format', 'jsonv2');
     url.searchParams.set('lat', latitude.toFixed(6));
     url.searchParams.set('lon', longitude.toFixed(6));
     url.searchParams.set('zoom', '10');
     url.searchParams.set('accept-language', 'zh-CN,zh');
-    const data = await requestJson(url);
+    const data = await requestJson(url, { timeoutMs: 5_000 });
     const address = data?.address || {};
-    const city = address.city || address.town || address.village || address.municipality || address.county || '';
-    const region = address.state || address.province || '';
-    const country = address.country || '';
-    const parts = dedupeParts([city, region, country]);
-    return {
-        label: parts.join(' / ') || queryString(data?.display_name, '', 160),
-        city: queryString(city, '', 80),
-        region: queryString(region, '', 80),
-        country: queryString(country, '', 80),
+    return makeAddress(
+        'nominatim',
+        address.city || address.town || address.village || address.municipality || address.county,
+        address.state || address.province,
+        address.country,
+        data?.display_name,
+    );
+}
+
+async function reverseGeocodeBigDataCloud(latitude, longitude, requestJson) {
+    const url = new URL('https://api.bigdatacloud.net/data/reverse-geocode-client');
+    url.searchParams.set('latitude', latitude.toFixed(6));
+    url.searchParams.set('longitude', longitude.toFixed(6));
+    url.searchParams.set('localityLanguage', 'zh');
+    const data = await requestJson(url, { timeoutMs: 5_000 });
+    return makeAddress(
+        'bigdatacloud',
+        data?.locality || data?.city,
+        data?.principalSubdivision,
+        data?.countryName,
+    );
+}
+
+async function reverseGeocodePhoton(latitude, longitude, requestJson) {
+    const url = new URL('https://photon.komoot.io/reverse');
+    url.searchParams.set('lat', latitude.toFixed(6));
+    url.searchParams.set('lon', longitude.toFixed(6));
+    const data = await requestJson(url, {
+        timeoutMs: 5_000,
+        headers: { 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.5' },
+    });
+    const properties = data?.features?.[0]?.properties || {};
+    return makeAddress(
+        'photon',
+        properties.district || properties.city || properties.county,
+        properties.state,
+        properties.country,
+        properties.name,
+    );
+}
+
+async function reverseGeocode(provider, latitude, longitude, requestJson) {
+    const loaders = {
+        nominatim: reverseGeocodeNominatim,
+        bigdatacloud: reverseGeocodeBigDataCloud,
+        photon: reverseGeocodePhoton,
     };
+    if (provider !== 'auto') {
+        return loaders[provider](latitude, longitude, requestJson);
+    }
+
+    const failures = [];
+    for (const candidate of REVERSE_GEOCODER_ORDER) {
+        try {
+            return {
+                ...await loaders[candidate](latitude, longitude, requestJson),
+                addressFallbackErrors: failures,
+            };
+        } catch (error) {
+            failures.push(`${REVERSE_GEOCODER_NAMES[candidate]}：${safeError(error)}`);
+        }
+    }
+    throw new Error(`所有反向地址解析服务均失败：${failures.join('；')}`);
 }
 
 function readBrowserLocation(rawQuery) {
@@ -389,6 +465,10 @@ function createStatusService(dependencies = {}) {
         const providerInput = queryString(rawQuery.provider, 'open-meteo', 32);
         const provider = PROVIDERS.has(providerInput) ? providerInput : 'open-meteo';
         const locationMode = queryString(rawQuery.locationMode, 'manual', 16) === 'auto' ? 'auto' : 'manual';
+        const reverseProviderInput = queryString(rawQuery.reverseGeocodingProvider, 'auto', 32);
+        const reverseGeocodingProvider = ['auto', ...REVERSE_GEOCODER_ORDER].includes(reverseProviderInput)
+            ? reverseProviderInput
+            : 'auto';
         const manualLocation = queryString(rawQuery.location, '', 160);
         const locationTtlMs = queryInteger(rawQuery.locationRefreshMinutes, 5, 60, 10) * 60_000;
         const weatherTtlMs = queryInteger(rawQuery.weatherRefreshMinutes, 5, 180, 30) * 60_000;
@@ -403,7 +483,7 @@ function createStatusService(dependencies = {}) {
             weather: null,
             errors,
             warnings: {},
-            meta: { provider, locationMode, forceRefresh },
+            meta: { provider, locationMode, reverseGeocodingProvider, forceRefresh },
         };
 
         if (!includeWeather) {
@@ -440,14 +520,20 @@ function createStatusService(dependencies = {}) {
         }
 
         const coordinatesKey = `${result.location.latitude.toFixed(4)},${result.location.longitude.toFixed(4)}`;
+        const addressKey = `${reverseGeocodingProvider}:${coordinatesKey}`;
         const weatherKey = `${provider}:${coordinatesKey}`;
         const followUpTasks = [];
 
         if (locationMode === 'auto') {
             followUpTasks.push((async () => {
                 try {
-                    const address = await addressCache.read(coordinatesKey, locationTtlMs, () => (
-                        reverseGeocode(result.location.latitude, result.location.longitude, requestJson)
+                    const address = await addressCache.read(addressKey, locationTtlMs, () => (
+                        reverseGeocode(
+                            reverseGeocodingProvider,
+                            result.location.latitude,
+                            result.location.longitude,
+                            requestJson,
+                        )
                     ), forceRefresh);
                     result.location = {
                         ...result.location,
@@ -455,10 +541,16 @@ function createStatusService(dependencies = {}) {
                         city: address.city,
                         region: address.region,
                         country: address.country,
+                        addressProvider: address.addressProvider,
                         addressStale: address.stale,
                     };
+                    if (address.addressFallbackErrors?.length) {
+                        result.warnings.location = `${address.addressFallbackErrors.join('；')}；已使用 ${REVERSE_GEOCODER_NAMES[address.addressProvider]}`;
+                    } else if (address.stale && address.refreshError) {
+                        result.warnings.location = `反向地址解析刷新失败（${address.refreshError}），正在使用旧地址缓存`;
+                    }
                 } catch (error) {
-                    console.warn(`[environment-context] 反向地理编码失败：${safeError(error)}`);
+                    result.warnings.location = `反向地址解析失败（${reverseGeocodingProvider === 'auto' ? '自动' : REVERSE_GEOCODER_NAMES[reverseGeocodingProvider]}）：${safeError(error)}；保留坐标`;
                 }
             })());
         }

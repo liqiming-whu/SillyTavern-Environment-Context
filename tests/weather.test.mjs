@@ -148,6 +148,68 @@ test('浏览器定位坐标用于反向地理编码和天气并行请求', async
     assert.equal(maxActiveHttp, 2);
 });
 
+test('反向地址解析可显式选择 BigDataCloud 或 Photon，且缓存键互相隔离', async () => {
+    const addressHosts = [];
+    const requestJson = async (url) => {
+        if (url.hostname === 'api.bigdatacloud.net') {
+            addressHosts.push(url.hostname);
+            return { locality: '伍家崗區', city: '宜昌市', principalSubdivision: '湖北省', countryName: '中华人民共和国' };
+        }
+        if (url.hostname === 'photon.komoot.io') {
+            addressHosts.push(url.hostname);
+            return { features: [{ properties: { district: '夷陵区', city: '宜昌市', state: '湖北省', country: '中国' } }] };
+        }
+        if (url.hostname === 'api.open-meteo.com') {
+            return { timezone: 'Asia/Shanghai', current: { weather_code: 0, temperature_2m: 31, apparent_temperature: 34, relative_humidity_2m: 60, wind_speed_10m: 5, wind_direction_10m: 0 } };
+        }
+        throw new Error(`unexpected URL ${url}`);
+    };
+    const service = createStatusService({ requestJson });
+    const base = {
+        weather: '1', provider: 'open-meteo', locationMode: 'auto',
+        latitude: '30.668954', longitude: '111.439846', accuracy: '100', locationTimestamp: '1787051966000',
+    };
+    const bigDataCloud = await service({ ...base, reverseGeocodingProvider: 'bigdatacloud' });
+    const photon = await service({ ...base, reverseGeocodingProvider: 'photon' });
+    assert.equal(bigDataCloud.location.addressProvider, 'bigdatacloud');
+    assert.equal(bigDataCloud.location.label, '伍家崗區 / 湖北省 / 中华人民共和国');
+    assert.equal(photon.location.addressProvider, 'photon');
+    assert.equal(photon.location.label, '夷陵区 / 湖北省 / 中国');
+    assert.deepEqual(addressHosts, ['api.bigdatacloud.net', 'photon.komoot.io']);
+});
+
+test('反向地址解析 auto 按 Nominatim、BigDataCloud、Photon 顺序容错', async () => {
+    const reverseCalls = [];
+    const requestJson = async (url) => {
+        if (url.hostname === 'nominatim.openstreetmap.org') {
+            reverseCalls.push('nominatim');
+            throw new Error('Nominatim offline');
+        }
+        if (url.hostname === 'api.bigdatacloud.net') {
+            reverseCalls.push('bigdatacloud');
+            throw new Error('BigDataCloud offline');
+        }
+        if (url.hostname === 'photon.komoot.io') {
+            reverseCalls.push('photon');
+            return { features: [{ properties: { district: '夷陵区', city: '宜昌市', state: '湖北省', country: '中国' } }] };
+        }
+        if (url.hostname === 'api.open-meteo.com') {
+            return { timezone: 'Asia/Shanghai', current: { weather_code: 1, temperature_2m: 31, apparent_temperature: 36, relative_humidity_2m: 65, wind_speed_10m: 6, wind_direction_10m: 90 } };
+        }
+        throw new Error(`unexpected URL ${url}`);
+    };
+    const service = createStatusService({ requestJson });
+    const status = await service({
+        weather: '1', provider: 'open-meteo', locationMode: 'auto', reverseGeocodingProvider: 'auto',
+        latitude: '30.668954', longitude: '111.439846', accuracy: '100', locationTimestamp: '1787051966000', force: '1',
+    });
+    assert.equal(status.ok, true);
+    assert.equal(status.location.addressProvider, 'photon');
+    assert.equal(status.location.label, '夷陵区 / 湖北省 / 中国');
+    assert.deepEqual(reverseCalls, ['nominatim', 'bigdatacloud', 'photon']);
+    assert.match(status.warnings.location, /Nominatim.*offline.*BigDataCloud.*offline.*已使用 Photon/);
+});
+
 test('非 Open-Meteo 提供方失败时回退并给出明确警告', async () => {
     const service = createStatusService({ requestJson: async (url) => {
         if (url.hostname === 'geocoding-api.open-meteo.com') {

@@ -12,6 +12,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     showWind: true,
     weatherProvider: 'open-meteo',
     locationMode: 'manual',
+    reverseGeocodingProvider: 'auto',
     manualLocation: '武汉',
     weatherRefreshMinutes: 30,
     locationRefreshMinutes: 10,
@@ -33,6 +34,9 @@ export function normalizeSettings(input = {}) {
         ? value.weatherProvider
         : DEFAULT_SETTINGS.weatherProvider;
     value.locationMode = value.locationMode === 'auto' ? 'auto' : 'manual';
+    value.reverseGeocodingProvider = ['auto', 'nominatim', 'bigdatacloud', 'photon'].includes(value.reverseGeocodingProvider)
+        ? value.reverseGeocodingProvider
+        : DEFAULT_SETTINGS.reverseGeocodingProvider;
     value.injectionMode = ['system', 'in_chat', 'authors_note'].includes(value.injectionMode)
         ? value.injectionMode
         : DEFAULT_SETTINGS.injectionMode;

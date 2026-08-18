@@ -54,7 +54,8 @@ function clientTimeZone() {
 function weatherIdentity(settings) {
     if (!settings.injectWeather) return 'weather-disabled';
     const location = settings.locationMode === 'manual' ? settings.manualLocation.trim().toLocaleLowerCase() : 'browser';
-    return `${settings.weatherProvider}|${settings.locationMode}|${location}`;
+    const reverseProvider = settings.locationMode === 'auto' ? settings.reverseGeocodingProvider : 'not-applicable';
+    return `${settings.weatherProvider}|${settings.locationMode}|${location}|${reverseProvider}`;
 }
 
 function compatibleLastStatus(settings) {
@@ -164,6 +165,7 @@ function buildWeatherQuery(settings, browserLocation, forceRefresh = false) {
         weather: '1',
         provider: settings.weatherProvider,
         locationMode: settings.locationMode,
+        reverseGeocodingProvider: settings.reverseGeocodingProvider,
         locationRefreshMinutes: String(settings.locationRefreshMinutes),
         weatherRefreshMinutes: String(settings.weatherRefreshMinutes),
     };
@@ -423,6 +425,16 @@ function buildSettingsHtml() {
                         <label for="environment_context_manualLocation">地点</label>
                         <input id="environment_context_manualLocation" class="text_pole" type="text" maxlength="160" placeholder="例如：武汉；重名时填写宜昌市" data-ec-setting="manualLocation" />
                     </div>
+                    <div id="environment_context_reverse_geocoding_block">
+                        <label for="environment_context_reverseGeocodingProvider">反向地址解析</label>
+                        <select id="environment_context_reverseGeocodingProvider" class="text_pole" data-ec-setting="reverseGeocodingProvider">
+                            <option value="auto">自动（Nominatim → BigDataCloud → Photon）</option>
+                            <option value="nominatim">Nominatim</option>
+                            <option value="bigdatacloud">BigDataCloud</option>
+                            <option value="photon">Photon</option>
+                        </select>
+                        <small class="environment-context-help">仅用于浏览器自动定位后的坐标转地址。自动模式按以上顺序尝试，前一服务失败时继续下一项。</small>
+                    </div>
                     <div class="environment-context-grid">
                         ${checkbox('显示地点', 'showLocation')}
                         ${checkbox('天气状况', 'showCondition')}
@@ -504,6 +516,7 @@ function syncUiFromSettings() {
 
 function updateConditionalUi(settings = currentSettings()) {
     $('#environment_context_manual_location_block').toggle(settings.locationMode === 'manual');
+    $('#environment_context_reverse_geocoding_block').toggle(settings.locationMode === 'auto');
     $('#environment_context_in_chat_depth_block').toggle(settings.injectionMode === 'in_chat');
     $('#environment_context_author_depth_block').toggle(settings.injectionMode === 'authors_note');
 }

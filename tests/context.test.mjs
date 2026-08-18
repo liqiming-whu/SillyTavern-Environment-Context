@@ -89,11 +89,13 @@ test('设置归一化限制刷新间隔和深度', () => {
         injectionDepth: -5,
         authorNoteDepth: 999,
         weatherProvider: 'invalid',
+        reverseGeocodingProvider: 'invalid',
     });
     assert.equal(settings.weatherRefreshMinutes, 180);
     assert.equal(settings.injectionDepth, 0);
     assert.equal(settings.authorNoteDepth, 100);
     assert.equal(settings.weatherProvider, 'open-meteo');
+    assert.equal(settings.reverseGeocodingProvider, 'auto');
 });
 
 test('设备信息作为独立条目输出，并允许自定义设备名称', () => {
