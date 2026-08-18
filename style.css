@@ -1,0 +1,71 @@
+.environment-context-settings .inline-drawer-content {
+    padding-bottom: 0.75rem;
+}
+
+.environment-context-settings section {
+    margin: 0.8rem 0;
+    padding: 0.7rem;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+}
+
+.environment-context-settings h4 {
+    margin: 0 0 0.55rem;
+}
+
+.environment-context-settings label:not(.checkbox_label) {
+    display: block;
+    margin-top: 0.55rem;
+    margin-bottom: 0.25rem;
+}
+
+.environment-context-intro,
+.environment-context-help,
+.environment-context-status {
+    color: var(--SmartThemeBodyColor);
+    opacity: 0.82;
+    line-height: 1.45;
+}
+
+.environment-context-help {
+    display: block;
+    margin: 0.2rem 0 0.45rem;
+}
+
+.environment-context-checkbox {
+    margin: 0.32rem 0;
+}
+
+.environment-context-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+    gap: 0.2rem 0.65rem;
+    margin-top: 0.45rem;
+}
+
+.environment-context-preview {
+    max-height: 20rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0.45rem 0;
+    padding: 0.65rem;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 70%, transparent);
+    color: var(--SmartThemeBodyColor);
+}
+
+.environment-context-status {
+    margin: 0.45rem 0;
+}
+
+.environment-context-error {
+    color: #e57373;
+    opacity: 1;
+}
+
+#environment_context_test {
+    width: 100%;
+    margin-top: 0.45rem;
+}

@@ -1,0 +1,12 @@
+{
+  "display_name": "环境上下文",
+  "loading_order": 910,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "Li Qiming",
+  "version": "1.2.0",
+  "homePage": "https://github.com/liqiming-whu/SillyTavern-Environment-Context",
+  "auto_update": true
+}
