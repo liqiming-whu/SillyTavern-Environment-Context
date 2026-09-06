@@ -42,10 +42,10 @@ export function normalizeSettings(input = {}) {
     })).filter(event => event.name && event.date).slice(0, 100);
     value.weatherRefreshMinutes = clampInteger(value.weatherRefreshMinutes, 5, 180, 30);
     value.locationRefreshMinutes = clampInteger(value.locationRefreshMinutes, 5, 60, 10);
-    value.userCycleLength = clampInteger(value.userCycleLength ?? value.cycleLength, 15, 60, 28);
-    value.userPeriodDuration = clampInteger(value.userPeriodDuration ?? value.periodDuration, 1, Math.min(14, value.userCycleLength), 5);
-    value.charCycleLength = clampInteger(value.charCycleLength ?? value.cycleLength, 15, 60, 28);
-    value.charPeriodDuration = clampInteger(value.charPeriodDuration ?? value.periodDuration, 1, Math.min(14, value.charCycleLength), 5);
+    value.userCycleLength = clampInteger(input.userCycleLength ?? input.cycleLength ?? value.userCycleLength, 15, 60, 28);
+    value.userPeriodDuration = clampInteger(input.userPeriodDuration ?? input.periodDuration ?? value.userPeriodDuration, 1, Math.min(14, value.userCycleLength), 5);
+    value.charCycleLength = clampInteger(input.charCycleLength ?? input.cycleLength ?? value.charCycleLength, 15, 60, 28);
+    value.charPeriodDuration = clampInteger(input.charPeriodDuration ?? input.periodDuration ?? value.charPeriodDuration, 1, Math.min(14, value.charCycleLength), 5);
     value.injectionDepth = clampInteger(value.injectionDepth, 0, 100, 1);
     value.authorNoteDepth = clampInteger(value.authorNoteDepth, 0, 100, 4);
     for (const key of Object.keys(DEFAULT_SETTINGS)) if (typeof DEFAULT_SETTINGS[key] === 'boolean') value[key] = Boolean(value[key]);

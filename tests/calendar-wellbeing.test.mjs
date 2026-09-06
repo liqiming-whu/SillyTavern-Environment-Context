@@ -122,6 +122,17 @@ test('设置支持天气 auto、角色卡去重和安全宏名', () => {
     assert.equal(normalizeMacroName('  {} '), 'environment_context');
 });
 
+test('v2.0.0 单对象经期设置迁移到对应 user 或 char 且保留周期长度', () => {
+    const user = normalizeSettings({ cycleOwner: '{{user}}', cycleStartDate: '2026-01-01', cycleLength: 31, periodDuration: 6 });
+    assert.equal(user.userCycleStartDate, '2026-01-01');
+    assert.equal(user.userCycleLength, 31);
+    assert.equal(user.userPeriodDuration, 6);
+    const character = normalizeSettings({ cycleOwner: '{{char}}', cycleStartDate: '2026-02-01', cycleLength: 26, periodDuration: 4 });
+    assert.equal(character.charCycleStartDate, '2026-02-01');
+    assert.equal(character.charCycleLength, 26);
+    assert.equal(character.charPeriodDuration, 4);
+});
+
 test('角色卡绑定留空全局注入，非空仅匹配选中角色', () => {
     assert.equal(matchesCharacterBinding([], '3'), true);
     assert.equal(matchesCharacterBinding(['2', '3'], 3), true);
