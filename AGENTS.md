@@ -7,4 +7,5 @@
 5. 位置和天气读取失败时可以使用同一缓存键的旧值并明确标记 stale；不得阻塞生成或把其他地点/提供方的缓存混用。电量读取失败应显示不可用，不复用旧电量。
 6. 注入内容不得写入聊天历史；默认使用 `setExtensionPrompt()` 的聊天内系统消息深度 1。
 7. 修改后至少执行 `npm test`、`npm run check`、残留依赖扫描、Git 安装结构检查。浏览器权限、CORS、定位、联网、通过 SillyTavern Git 安装/更新与真实生成必须在用户设备上验证。
-8. 参考权威：当前 SillyTavern 源码、官方 Git Extension installer、SillyTavern/Extension-Weather；Operit `examples/message_insert` 仅作为移动端采集和非持久注入设计参考。
+8. 角色卡绑定使用角色 avatar 作为稳定 ID，并兼容旧数组下标；留空表示全局注入。生日/纪念日和生理状态必须在预览中可见，注入分为现实环境、生日和纪念日、角色生理状态三块。
+9. 参考权威：当前 SillyTavern 源码、官方 Git Extension installer、SillyTavern/Extension-Weather；Operit `examples/message_insert` 仅作为移动端采集和非持久注入设计参考。

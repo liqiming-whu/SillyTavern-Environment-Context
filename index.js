@@ -17,7 +17,7 @@ import {
 } from './context.js';
 import { getCalendarContext, formatLocalDate } from './calendar.js';
 import { readBrowserDevice } from './device.js';
-import { calculateCycleStatus, calculatePregnancyStatus, collectAnniversaries } from './wellbeing.js';
+import { calculatePregnancyStatus, collectAnniversaries, collectCycleStatuses } from './wellbeing.js';
 import { createStatusService } from './weather.js';
 
 const SETTINGS_KEY = 'environmentContext';
@@ -31,13 +31,23 @@ let registeredMacroName = '';
 let macroPromptCache = '';
 
 function loadSettings() {
-    const normalized = normalizeSettings(extension_settings[SETTINGS_KEY] || DEFAULT_SETTINGS);
+    const existing = extension_settings[SETTINGS_KEY] || DEFAULT_SETTINGS;
+    const normalized = normalizeSettings(existing);
+    const characters = availableCharacters();
+    normalized.boundCharacterIds = normalized.boundCharacterIds.map(id => (
+        characters.find(character => character.legacyId === id)?.id || id
+    ));
     extension_settings[SETTINGS_KEY] = normalized;
     return normalized;
 }
 
 function currentSettings() {
-    return normalizeSettings(extension_settings[SETTINGS_KEY]);
+    const normalized = normalizeSettings(extension_settings[SETTINGS_KEY]);
+    const characters = availableCharacters();
+    normalized.boundCharacterIds = normalized.boundCharacterIds.map(id => (
+        characters.find(character => character.legacyId === id)?.id || id
+    ));
+    return normalized;
 }
 
 function saveSetting(key, value) {
@@ -58,23 +68,33 @@ function clientTimeZone() {
 }
 
 function sillyTavernContext() {
-    return globalThis.SillyTavern?.getContext?.() || null;
+    try {
+        return typeof SillyTavern !== 'undefined' && typeof SillyTavern.getContext === 'function'
+            ? SillyTavern.getContext()
+            : null;
+    } catch {
+        return null;
+    }
 }
 
-function currentCharacterId() {
+function currentCharacterKeys() {
     const context = sillyTavernContext();
-    const id = context?.characterId;
-    return id === null || id === undefined ? '' : String(id);
+    const index = context?.characterId;
+    const character = index === null || index === undefined ? null : context?.characters?.[Number(index)];
+    return [character?.avatar, index, character?.name, character?.data?.name]
+        .filter(value => value !== null && value !== undefined && String(value).trim())
+        .map(String);
 }
 
 function matchesBoundCharacter(settings) {
-    return matchesCharacterBinding(settings.boundCharacterIds, currentCharacterId());
+    return matchesCharacterBinding(settings.boundCharacterIds, currentCharacterKeys());
 }
 
 function availableCharacters() {
     const characters = sillyTavernContext()?.characters || [];
     return characters.map((character, index) => ({
-        id: String(index),
+        id: String(character?.avatar || index),
+        legacyId: String(index),
         name: String(character?.name || character?.data?.name || character?.char_name || `角色 ${index}`),
     }));
 }
@@ -91,7 +111,7 @@ function compatibleLastStatus(settings) {
     const localFields = {
         date,
         anniversaries: collectAnniversaries(settings, date),
-        cycle: settings.cycleEnabled ? calculateCycleStatus(settings.cycleStartDate, settings.cycleLength, settings.periodDuration, date) : null,
+        cycles: settings.cycleEnabled ? collectCycleStatuses(settings, date) : [],
         pregnancy: settings.pregnancyEnabled ? calculatePregnancyStatus(settings.pregnancyStartDate, date) : null,
     };
     if (!lastStatus) return localFields;
@@ -232,7 +252,7 @@ async function fetchEnvironmentStatus(settings, forceRefresh = false) {
         time: { iso: now.toISOString(), timeZone: clientTimeZone() },
         calendar: null,
         anniversaries: collectAnniversaries(settings, date),
-        cycle: settings.cycleEnabled ? calculateCycleStatus(settings.cycleStartDate, settings.cycleLength, settings.periodDuration, date) : null,
+        cycles: settings.cycleEnabled ? collectCycleStatuses(settings, date) : [],
         pregnancy: settings.pregnancyEnabled ? calculatePregnancyStatus(settings.pregnancyStartDate, date) : null,
         battery: null,
         device: null,
@@ -583,15 +603,21 @@ function buildSettingsHtml() {
                 <section>
                     <h4>经期</h4>
                     ${checkbox('注入经期状态', 'cycleEnabled')}
-                    <label for="environment_context_cycleOwner">对象</label>
-                    <select id="environment_context_cycleOwner" class="text_pole" data-ec-setting="cycleOwner"><option value="{{user}}">{{user}}</option><option value="{{char}}">{{char}}</option></select>
-                    <label for="environment_context_cycleStartDate">经期起始日期</label>
-                    <input id="environment_context_cycleStartDate" class="text_pole" type="date" data-ec-setting="cycleStartDate" />
-                    <small class="environment-context-help">填写任意一次已知经期开始日期即可，插件会根据周期自动计算最近一次开始时间。</small>
-                    <label for="environment_context_cycleLength">周期时间（天，15–60）</label>
-                    <input id="environment_context_cycleLength" class="text_pole" type="number" min="15" max="60" data-ec-setting="cycleLength" />
-                    <label for="environment_context_periodDuration">经期持续时间（天，1–14）</label>
-                    <input id="environment_context_periodDuration" class="text_pole" type="number" min="1" max="14" data-ec-setting="periodDuration" />
+                    <h5>{{user}} 经期</h5>
+                    <label for="environment_context_userCycleStartDate">任意一次已知经期起始日期</label>
+                    <input id="environment_context_userCycleStartDate" class="text_pole" type="date" data-ec-setting="userCycleStartDate" />
+                    <label for="environment_context_userCycleLength">周期时间（天，15–60）</label>
+                    <input id="environment_context_userCycleLength" class="text_pole" type="number" min="15" max="60" data-ec-setting="userCycleLength" />
+                    <label for="environment_context_userPeriodDuration">经期持续时间（天，1–14）</label>
+                    <input id="environment_context_userPeriodDuration" class="text_pole" type="number" min="1" max="14" data-ec-setting="userPeriodDuration" />
+                    <h5>{{char}} 经期</h5>
+                    <label for="environment_context_charCycleStartDate">任意一次已知经期起始日期</label>
+                    <input id="environment_context_charCycleStartDate" class="text_pole" type="date" data-ec-setting="charCycleStartDate" />
+                    <label for="environment_context_charCycleLength">周期时间（天，15–60）</label>
+                    <input id="environment_context_charCycleLength" class="text_pole" type="number" min="15" max="60" data-ec-setting="charCycleLength" />
+                    <label for="environment_context_charPeriodDuration">经期持续时间（天，1–14）</label>
+                    <input id="environment_context_charPeriodDuration" class="text_pole" type="number" min="1" max="14" data-ec-setting="charPeriodDuration" />
+                    <small class="environment-context-help">两者可分别设置。填写任意一次已知开始日期即可，插件会自动计算最近一次经期，以及下次预计来潮和结束日期；留空的对象不注入。</small>
                 </section>
 
                 <section>

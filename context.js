@@ -10,7 +10,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
     manualLocation: '武汉', weatherRefreshMinutes: 30, locationRefreshMinutes: 10,
     calendarEnabled: true, countryCode: 'CN',
     anniversariesEnabled: true, userBirthday: '', charBirthday: '', anniversaries: [],
-    cycleEnabled: false, cycleOwner: '{{user}}', cycleStartDate: '', cycleLength: 28, periodDuration: 5,
+    cycleEnabled: false,
+    userCycleStartDate: '', userCycleLength: 28, userPeriodDuration: 5,
+    charCycleStartDate: '', charCycleLength: 28, charPeriodDuration: 5,
     pregnancyEnabled: false, pregnancyOwner: '{{user}}', pregnancyStartDate: '',
     injectBattery: true, showCharging: true,
     injectDevice: true, showDeviceName: true, showDeviceModel: true, showDevicePlatform: true, customDeviceName: '',
@@ -28,9 +30,9 @@ export function normalizeSettings(input = {}) {
     value.countryCode = /^[A-Z]{2}$/.test(String(value.countryCode || '').toUpperCase()) ? String(value.countryCode).toUpperCase() : 'CN';
     value.userBirthday = normalizeDateInput(value.userBirthday);
     value.charBirthday = normalizeDateInput(value.charBirthday);
-    value.cycleStartDate = normalizeFullDate(value.cycleStartDate);
+    value.userCycleStartDate = normalizeFullDate(value.userCycleStartDate || (value.cycleOwner === '{{user}}' ? value.cycleStartDate : ''));
+    value.charCycleStartDate = normalizeFullDate(value.charCycleStartDate || (value.cycleOwner === '{{char}}' ? value.cycleStartDate : ''));
     value.pregnancyStartDate = normalizeFullDate(value.pregnancyStartDate);
-    value.cycleOwner = sanitizeMacroLabel(value.cycleOwner, '{{user}}');
     value.pregnancyOwner = sanitizeMacroLabel(value.pregnancyOwner, '{{user}}');
     value.macroName = normalizeMacroName(value.macroName);
     value.boundCharacterIds = [...new Set((Array.isArray(value.boundCharacterIds) ? value.boundCharacterIds : []).map(item => sanitizeInline(item, 120)).filter(Boolean))].slice(0, 200);
@@ -40,8 +42,10 @@ export function normalizeSettings(input = {}) {
     })).filter(event => event.name && event.date).slice(0, 100);
     value.weatherRefreshMinutes = clampInteger(value.weatherRefreshMinutes, 5, 180, 30);
     value.locationRefreshMinutes = clampInteger(value.locationRefreshMinutes, 5, 60, 10);
-    value.cycleLength = clampInteger(value.cycleLength, 15, 60, 28);
-    value.periodDuration = clampInteger(value.periodDuration, 1, Math.min(14, value.cycleLength), 5);
+    value.userCycleLength = clampInteger(value.userCycleLength ?? value.cycleLength, 15, 60, 28);
+    value.userPeriodDuration = clampInteger(value.userPeriodDuration ?? value.periodDuration, 1, Math.min(14, value.userCycleLength), 5);
+    value.charCycleLength = clampInteger(value.charCycleLength ?? value.cycleLength, 15, 60, 28);
+    value.charPeriodDuration = clampInteger(value.charPeriodDuration ?? value.periodDuration, 1, Math.min(14, value.charCycleLength), 5);
     value.injectionDepth = clampInteger(value.injectionDepth, 0, 100, 1);
     value.authorNoteDepth = clampInteger(value.authorNoteDepth, 0, 100, 4);
     for (const key of Object.keys(DEFAULT_SETTINGS)) if (typeof DEFAULT_SETTINGS[key] === 'boolean') value[key] = Boolean(value[key]);
@@ -62,9 +66,13 @@ function sanitizeMacroLabel(value, fallback) {
 export function normalizeMacroName(value) {
     return String(value || 'environment_context').trim().replace(/[{}\s]+/g, '_').replace(/[^a-zA-Z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '') || 'environment_context';
 }
-export function matchesCharacterBinding(boundCharacterIds, characterId) {
+export function matchesCharacterBinding(boundCharacterIds, characterKeys) {
     const ids = Array.isArray(boundCharacterIds) ? boundCharacterIds.map(String).filter(Boolean) : [];
-    return ids.length === 0 || (characterId !== null && characterId !== undefined && ids.includes(String(characterId)));
+    if (ids.length === 0) return true;
+    const keys = (Array.isArray(characterKeys) ? characterKeys : [characterKeys])
+        .filter(value => value !== null && value !== undefined && String(value).trim())
+        .map(String);
+    return keys.some(key => ids.includes(key));
 }
 function normalizeFullDate(value) { const text = String(value || '').trim(); return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : ''; }
 function normalizeDateInput(value) { const text = String(value || '').trim(); return /^(?:\d{4}-)?\d{2}-\d{2}$/.test(text) ? text : ''; }
@@ -82,17 +90,22 @@ export function markStatusStale(status) {
 export function buildEnvironmentPrompt(settingsInput, status, clientTimeZone = '') {
     const settings = normalizeSettings(settingsInput);
     if (!settings.enabled) return '';
-    const lines = ['【现实环境信息】'];
+    const environmentLines = ['【现实环境信息】'];
+    const anniversaryLines = [];
+    const wellbeingLines = [];
     const timeZone = sanitizeInline(clientTimeZone || status?.time?.timeZone || '', 80);
-    if (settings.injectTime) lines.push('当前时间：{{date}} {{time}}');
-    if (settings.injectTimezone && timeZone) lines.push(`时区：${timeZone}`);
-    if (settings.injectWeekday) lines.push('星期：{{weekday}}');
-    appendCalendarLines(lines, settings, status?.calendar);
-    appendAnniversaryLines(lines, settings, status?.anniversaries || collectAnniversaries(settings, status?.date || ''));
-    if (settings.injectWeather) appendWeatherLines(lines, settings, status?.weather, status?.location);
-    appendWellbeingLines(lines, settings, status);
-    if (settings.injectBattery) appendBatteryLines(lines, settings, status?.battery);
-    if (settings.injectDevice) appendDeviceLines(lines, settings, status?.device);
+    if (settings.injectTime) environmentLines.push('当前时间：{{date}} {{time}}');
+    if (settings.injectTimezone && timeZone) environmentLines.push(`时区：${timeZone}`);
+    if (settings.injectWeekday) environmentLines.push('星期：{{weekday}}');
+    appendCalendarLines(environmentLines, settings, status?.calendar);
+    appendAnniversaryLines(anniversaryLines, settings, status?.anniversaries || collectAnniversaries(settings, status?.date || ''));
+    if (settings.injectWeather) appendWeatherLines(environmentLines, settings, status?.weather, status?.location);
+    appendWellbeingLines(wellbeingLines, settings, status);
+    if (settings.injectBattery) appendBatteryLines(environmentLines, settings, status?.battery);
+    if (settings.injectDevice) appendDeviceLines(environmentLines, settings, status?.device);
+    const lines = [...environmentLines];
+    if (anniversaryLines.length) lines.push('', '【生日和纪念日】', ...anniversaryLines);
+    if (wellbeingLines.length) lines.push('', '【角色生理状态】', ...wellbeingLines);
     const staleParts = [];
     if (settings.injectBattery && status?.battery?.stale) staleParts.push(formatStalePart('电量', status.battery));
     if (settings.injectWeather && status?.location?.stale) staleParts.push(formatStalePart('定位', status.location));
@@ -111,17 +124,31 @@ function appendCalendarLines(lines, settings, calendar) {
 function appendAnniversaryLines(lines, settings, anniversaries) {
     if (!settings.anniversariesEnabled || !Array.isArray(anniversaries)) return;
     for (const event of anniversaries) {
-        const extra = Number.isInteger(event.years) ? (event.type === 'birthday' ? `（${event.years}岁）` : `（第${event.years}年）`) : '';
-        lines.push(`${event.type === 'birthday' ? '生日' : '纪念日'}：今天是${sanitizeInline(event.name, 80)}${extra}！`);
+        const todayExtra = Number.isInteger(event.years) ? (event.type === 'birthday' ? `（${event.years}岁）` : `（第${event.years}年）`) : '';
+        const nextExtra = Number.isInteger(event.years) ? (event.type === 'birthday' ? `，届时${event.years}岁` : `，届时第${event.years}年`) : '';
+        const prefix = event.type === 'birthday' ? '生日' : '纪念日';
+        if (event.isToday) lines.push(`${prefix}：今天是${sanitizeInline(event.name, 80)}${todayExtra}！`);
+        else lines.push(`${prefix}：${sanitizeInline(event.name, 80)}，日期${sanitizeInline(event.date, 10)}，下次${sanitizeInline(event.nextDate, 10)}（还有${Number(event.daysUntil)}天${nextExtra}）`);
     }
 }
 function appendWellbeingLines(lines, settings, status) {
-    if (settings.cycleEnabled && status?.cycle && !status?.pregnancy) {
-        lines.push('角色生理状态：', `- ${settings.cycleOwner}：${status.cycle.description}`, '（生理状态应自然地影响精力、情绪和行为，但不必每次都明确提及）');
+    const pregnantOwner = settings.pregnancyEnabled && status?.pregnancy ? settings.pregnancyOwner : '';
+    if (settings.cycleEnabled && Array.isArray(status?.cycles)) {
+        for (const entry of status.cycles) {
+            if (entry.owner === pregnantOwner) continue;
+            const cycle = entry.status;
+            lines.push(`- ${entry.owner}：${cycle.description}`);
+            lines.push(`  最近一次经期：${cycle.recentStartDate} 至 ${cycle.recentEndDate}`);
+            lines.push(`  下次预计月经来潮：${cycle.nextStartDate}（还有${cycle.daysToNext}天）`);
+            lines.push(`  下次预计月经结束：${cycle.nextEndDate}`);
+        }
     }
     if (settings.pregnancyEnabled && status?.pregnancy) {
         const p = status.pregnancy;
-        lines.push('孕期追踪：', `- ${settings.pregnancyOwner}：孕${p.week}周（第${p.trimester}孕期），${p.statusText}，预产期${p.dueDate}`, '（孕期状态应自然影响体力、情绪、行动偏好与风险承受，不需要生硬医学播报）');
+        lines.push(`- ${settings.pregnancyOwner}：孕${p.week}周（第${p.trimester}孕期），${p.statusText}，预产期${p.dueDate}`);
+    }
+    if ((settings.cycleEnabled && status?.cycles?.length) || (settings.pregnancyEnabled && status?.pregnancy)) {
+        lines.push('（生理状态应自然影响精力、情绪、行动偏好与风险承受，不需要生硬医学播报）');
     }
 }
 function formatStalePart(label, value) {
