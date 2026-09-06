@@ -1,19 +1,25 @@
 import {
+    active_character,
+    characters,
     eventSource,
     event_types,
     extension_prompt_roles,
     extension_prompt_types,
+    name2,
     saveSettingsDebounced,
     setExtensionPrompt,
+    this_chid,
 } from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 import {
     DEFAULT_SETTINGS,
     buildEnvironmentPrompt,
+    listCharacterBindings,
     markStatusStale,
     matchesCharacterBinding,
     normalizeMacroName,
     normalizeSettings,
+    resolveCurrentCharacter,
 } from './context.js';
 import { getCalendarContext, formatLocalDate } from './calendar.js';
 import { readBrowserDevice } from './device.js';
@@ -77,13 +83,20 @@ function sillyTavernContext() {
     }
 }
 
+function currentCharacter() {
+    const context = sillyTavernContext() || {};
+    return resolveCurrentCharacter({
+        ...context,
+        characters: Array.isArray(characters) && characters.length > 0 ? characters : context.characters,
+        characterId: this_chid ?? context.characterId,
+        active_character,
+        name2,
+        groupId: context.groupId,
+    });
+}
+
 function currentCharacterKeys() {
-    const context = sillyTavernContext();
-    const index = context?.characterId;
-    const character = index === null || index === undefined ? null : context?.characters?.[Number(index)];
-    return [character?.avatar, index, character?.name, character?.data?.name]
-        .filter(value => value !== null && value !== undefined && String(value).trim())
-        .map(String);
+    return currentCharacter().keys;
 }
 
 function matchesBoundCharacter(settings) {
@@ -91,12 +104,22 @@ function matchesBoundCharacter(settings) {
 }
 
 function availableCharacters() {
-    const characters = sillyTavernContext()?.characters || [];
-    return characters.map((character, index) => ({
-        id: String(character?.avatar || index),
-        legacyId: String(index),
-        name: String(character?.name || character?.data?.name || character?.char_name || `角色 ${index}`),
-    }));
+    const context = sillyTavernContext() || {};
+    return listCharacterBindings({
+        ...context,
+        characters: Array.isArray(characters) && characters.length > 0 ? characters : context.characters,
+    });
+}
+
+function characterBindingLabel(settings) {
+    const characters = availableCharacters();
+    const current = currentCharacter();
+    const currentName = current.name || current.keys[0] || '未识别';
+    const boundNames = settings.boundCharacterIds.map(id => {
+        const character = characters.find(item => item.id === id || item.keys.includes(String(id)));
+        return character?.name || String(id);
+    });
+    return `当前角色：${currentName}；已绑定：${boundNames.join('、') || '无'}`;
 }
 
 function weatherIdentity(settings) {
@@ -390,7 +413,7 @@ async function refreshEnvironment({ notify = false, forceRefresh = false } = {})
 
     if (!settings.enabled || !matchesBoundCharacter(settings)) {
         clearPrompt();
-        if (settings.enabled) setUiStatus('当前角色卡未绑定，已跳过环境注入。', false);
+        if (settings.enabled) setUiStatus(`当前角色卡未绑定，已跳过环境注入。${characterBindingLabel(settings)}，请打开绑定角色卡的聊天界面后重试。`, false);
         return;
     }
 
@@ -485,8 +508,28 @@ function escapeHtml(value) {
     return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&' + 'quot;').replace(/'/g, '&#39;');
 }
 
-function characterOptions() {
-    return availableCharacters().map(character => `<option value="${escapeHtml(character.id)}">${escapeHtml(character.name)}</option>`).join('');
+function characterOptions(settings = currentSettings()) {
+    const characters = availableCharacters();
+    const knownIds = new Set(characters.flatMap(character => character.keys));
+    const options = characters.map(character => `<option value="${escapeHtml(character.id)}">${escapeHtml(character.name)}</option>`);
+    for (const id of settings.boundCharacterIds) {
+        if (!knownIds.has(String(id))) {
+            options.push(`<option value="${escapeHtml(id)}">${escapeHtml(id)}（已保存，当前列表未找到）</option>`);
+        }
+    }
+    return options.join('');
+}
+
+function refreshCharacterOptions(settings = currentSettings()) {
+    const element = document.getElementById('environment_context_boundCharacterIds');
+    if (!element) return;
+    const html = characterOptions(settings);
+    const signature = JSON.stringify([availableCharacters().map(character => [character.id, character.name]), settings.boundCharacterIds]);
+    if (element.dataset.ecOptionsSignature !== signature) {
+        element.innerHTML = html;
+        element.dataset.ecOptionsSignature = signature;
+    }
+    $(element).val(settings.boundCharacterIds);
 }
 
 function anniversaryRows(settings = currentSettings()) {
@@ -689,6 +732,7 @@ function buildSettingsHtml() {
 
 function syncUiFromSettings() {
     const settings = currentSettings();
+    refreshCharacterOptions(settings);
     document.querySelectorAll('#environment_context_settings [data-ec-setting]').forEach((element) => {
         const key = element.dataset.ecSetting;
         if (!(key in settings)) return;
@@ -709,7 +753,23 @@ function updateConditionalUi(settings = currentSettings()) {
     $('#environment_context_macro_block').toggle(settings.injectionMode === 'macro');
 }
 
+function refreshCharacterContext({ refreshStatus = true } = {}) {
+    const settings = currentSettings();
+    refreshCharacterOptions(settings);
+    if (refreshStatus) void refreshEnvironment({ notify: false });
+}
+
+function scheduleCharacterOptionRefresh() {
+    for (const delay of [250, 1_000, 3_000]) {
+        setTimeout(() => refreshCharacterContext({ refreshStatus: false }), delay);
+    }
+}
+
 function bindSettingsEvents() {
+    $('#environment_context_boundCharacterIds').on('focus', function () {
+        refreshCharacterOptions(currentSettings());
+    });
+
     $('#environment_context_settings [data-ec-setting]').on('change input', function () {
         const key = this.dataset.ecSetting;
         const value = this.type === 'checkbox' ? this.checked : this.multiple ? $(this).val() || [] : this.value;
@@ -763,6 +823,10 @@ jQuery(async () => {
     syncUiFromSettings();
     bindSettingsEvents();
     eventSource.on(event_types.GENERATION_AFTER_COMMANDS, onGenerationAfterCommands);
-    if (event_types.CHAT_CHANGED) eventSource.on(event_types.CHAT_CHANGED, () => refreshEnvironment({ notify: false }));
+    if (event_types.CHAT_CHANGED) eventSource.on(event_types.CHAT_CHANGED, () => refreshCharacterContext());
+    if (event_types.CHARACTER_PAGE_LOADED) eventSource.on(event_types.CHARACTER_PAGE_LOADED, () => refreshCharacterContext({ refreshStatus: false }));
+    if (event_types.SETTINGS_LOADED_AFTER) eventSource.on(event_types.SETTINGS_LOADED_AFTER, () => refreshCharacterContext({ refreshStatus: false }));
+    if (event_types.APP_READY) eventSource.on(event_types.APP_READY, () => refreshCharacterContext({ refreshStatus: false }));
+    scheduleCharacterOptionRefresh();
     await refreshEnvironment({ notify: false });
 });

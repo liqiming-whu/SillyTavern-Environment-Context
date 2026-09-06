@@ -66,6 +66,75 @@ function sanitizeMacroLabel(value, fallback) {
 export function normalizeMacroName(value) {
     return String(value || 'environment_context').trim().replace(/[{}\s]+/g, '_').replace(/[^a-zA-Z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '') || 'environment_context';
 }
+export function characterKeys(character, index = null) {
+    if (!character || typeof character !== 'object') return [];
+    return [...new Set([
+        character.avatar,
+        character.id,
+        character.uid,
+        character.uuid,
+        character.characterId,
+        character.character_id,
+        character.name,
+        character.char_name,
+        character.data?.avatar,
+        character.data?.name,
+        index,
+    ].filter(value => value !== null && value !== undefined && String(value).trim()).map(String))];
+}
+
+export function listCharacterBindings(context) {
+    const characters = Array.isArray(context?.characters) ? context.characters : [];
+    return characters.map((character, index) => {
+        const keys = characterKeys(character, index);
+        return {
+            id: String(character?.avatar || character?.data?.avatar || character?.id || character?.uuid || index),
+            legacyId: String(index),
+            name: String(character?.name || character?.data?.name || character?.char_name || `角色 ${index}`),
+            keys,
+            character,
+        };
+    });
+}
+
+export function resolveCurrentCharacter(context) {
+    if (context?.groupId !== null && context?.groupId !== undefined && String(context.groupId).trim()) {
+        return { character: null, index: null, keys: [], name: '' };
+    }
+    const characters = listCharacterBindings(context);
+    const references = [
+        context?.characterId,
+        context?.currentCharacterId,
+        context?.activeCharacterId,
+        context?.active_character,
+    ].filter(value => value !== null && value !== undefined && String(value).trim());
+    const directCharacter = references.find(value => typeof value === 'object');
+    if (directCharacter) {
+        const index = characters.findIndex(item => item.character === directCharacter);
+        return {
+            character: directCharacter,
+            index: index >= 0 ? index : null,
+            keys: characterKeys(directCharacter, index >= 0 ? index : null),
+            name: String(directCharacter?.name || directCharacter?.data?.name || directCharacter?.char_name || ''),
+        };
+    }
+    for (const reference of references.map(String)) {
+        if (/^\d+$/.test(reference) && characters[Number(reference)]) {
+            const item = characters[Number(reference)];
+            return { character: item.character, index: Number(reference), keys: item.keys, name: item.name };
+        }
+        const item = characters.find(candidate => candidate.keys.includes(reference));
+        if (item) return { character: item.character, index: Number(item.legacyId), keys: item.keys, name: item.name };
+    }
+    const systemNames = new Set(['SillyTavern System', 'TauriTavern System']);
+    const fallbackName = systemNames.has(String(context?.name2 || '')) ? '' : String(context?.name2 || '');
+    const fallbackKeys = [...new Set([
+        ...references.map(value => typeof value === 'object' ? '' : String(value)),
+        fallbackName,
+    ].filter(value => String(value || '').trim()).map(String))];
+    return { character: null, index: null, keys: fallbackKeys, name: fallbackName };
+}
+
 export function matchesCharacterBinding(boundCharacterIds, characterKeys) {
     const ids = Array.isArray(boundCharacterIds) ? boundCharacterIds.map(String).filter(Boolean) : [];
     if (ids.length === 0) return true;

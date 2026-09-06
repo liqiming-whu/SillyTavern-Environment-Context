@@ -17,6 +17,9 @@ test('设置项按需求包含角色卡多选、天气自动、日历、纪念�
         '怀孕时间', '孕周、孕期阶段、状态与预产期',
         '<option value="macro">宏占位符</option>',
         '必须在角色卡、系统提示词或预设中写入',
+        'CHARACTER_PAGE_LOADED', 'SETTINGS_LOADED_AFTER', 'scheduleCharacterOptionRefresh',
+        '当前角色：', '已绑定：', '请打开绑定角色卡的聊天界面后重试', '已保存，当前列表未找到',
+        'active_character', 'this_chid',
     ]) assert.match(source, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
 

@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { getCalendarContext } from '../calendar.js';
 import { calculateCycleStatus, calculatePregnancyStatus, collectAnniversaries, collectCycleStatuses } from '../wellbeing.js';
-import { buildEnvironmentPrompt, matchesCharacterBinding, normalizeMacroName, normalizeSettings } from '../context.js';
+import {
+    buildEnvironmentPrompt,
+    listCharacterBindings,
+    matchesCharacterBinding,
+    normalizeMacroName,
+    normalizeSettings,
+    resolveCurrentCharacter,
+} from '../context.js';
 
 test('中国日历使用 chinese-days 注入农历、节假日和调休信息', async () => {
     const mock = {
@@ -139,4 +146,33 @@ test('角色卡绑定留空全局注入，非空仅匹配选中角色', () => {
     assert.equal(matchesCharacterBinding(['Alice.png'], ['Alice.png', '2', 'Alice']), true);
     assert.equal(matchesCharacterBinding(['2', '3'], 4), false);
     assert.equal(matchesCharacterBinding(['2'], []), false);
+});
+
+test('角色列表使用稳定 avatar，并兼容 UUID、名称和旧数组下标', () => {
+    const characters = listCharacterBindings({ characters: [
+        { avatar: 'Alice.png', name: 'Alice', id: 'alice-id' },
+        { data: { avatar: 'Bob.png', name: 'Bob' }, uuid: 'bob-uuid' },
+    ] });
+    assert.equal(characters[0].id, 'Alice.png');
+    assert.deepEqual(characters[0].keys, ['Alice.png', 'alice-id', 'Alice', '0']);
+    assert.equal(characters[1].id, 'Bob.png');
+    assert.deepEqual(characters[1].keys, ['bob-uuid', 'Bob.png', 'Bob', '1']);
+});
+
+test('当前角色支持数组下标、avatar、UUID 和直接对象引用', () => {
+    const alice = { avatar: 'Alice.png', name: 'Alice', id: 'alice-id' };
+    const bob = { data: { avatar: 'Bob.png', name: 'Bob' }, uuid: 'bob-uuid' };
+    const characters = [alice, bob];
+    assert.equal(resolveCurrentCharacter({ characters, characterId: '0' }).name, 'Alice');
+    assert.equal(resolveCurrentCharacter({ characters, characterId: 'Bob.png' }).name, 'Bob');
+    assert.equal(resolveCurrentCharacter({ characters, activeCharacterId: 'bob-uuid' }).name, 'Bob');
+    assert.equal(resolveCurrentCharacter({ characters, characterId: alice }).name, 'Alice');
+    assert.deepEqual(resolveCurrentCharacter({ characters, active_character: 'Writer.png', name2: 'Writer' }).keys, ['Writer.png', 'Writer']);
+    assert.deepEqual(resolveCurrentCharacter({ characters, active_character: 'Bob.png', name2: 'SillyTavern System' }).keys, ['bob-uuid', 'Bob.png', 'Bob', '1']);
+    assert.deepEqual(resolveCurrentCharacter({ characters: [], name2: 'SillyTavern System' }), {
+        character: null, index: null, keys: [], name: '',
+    });
+    assert.deepEqual(resolveCurrentCharacter({ characters, groupId: 'group-1', active_character: 'Alice.png' }), {
+        character: null, index: null, keys: [], name: '',
+    });
 });
