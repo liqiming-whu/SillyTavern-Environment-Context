@@ -11,9 +11,13 @@ import {
     DEFAULT_SETTINGS,
     buildEnvironmentPrompt,
     markStatusStale,
+    matchesCharacterBinding,
+    normalizeMacroName,
     normalizeSettings,
 } from './context.js';
+import { getCalendarContext, formatLocalDate } from './calendar.js';
 import { readBrowserDevice } from './device.js';
+import { calculateCycleStatus, calculatePregnancyStatus, collectAnniversaries } from './wellbeing.js';
 import { createStatusService } from './weather.js';
 
 const SETTINGS_KEY = 'environmentContext';
@@ -23,6 +27,8 @@ const getWeatherStatus = createStatusService();
 let lastStatus = null;
 let lastStatusIdentity = '';
 let requestSequence = 0;
+let registeredMacroName = '';
+let macroPromptCache = '';
 
 function loadSettings() {
     const normalized = normalizeSettings(extension_settings[SETTINGS_KEY] || DEFAULT_SETTINGS);
@@ -51,6 +57,28 @@ function clientTimeZone() {
     }
 }
 
+function sillyTavernContext() {
+    return globalThis.SillyTavern?.getContext?.() || null;
+}
+
+function currentCharacterId() {
+    const context = sillyTavernContext();
+    const id = context?.characterId;
+    return id === null || id === undefined ? '' : String(id);
+}
+
+function matchesBoundCharacter(settings) {
+    return matchesCharacterBinding(settings.boundCharacterIds, currentCharacterId());
+}
+
+function availableCharacters() {
+    const characters = sillyTavernContext()?.characters || [];
+    return characters.map((character, index) => ({
+        id: String(index),
+        name: String(character?.name || character?.data?.name || character?.char_name || `角色 ${index}`),
+    }));
+}
+
 function weatherIdentity(settings) {
     if (!settings.injectWeather) return 'weather-disabled';
     const location = settings.locationMode === 'manual' ? settings.manualLocation.trim().toLocaleLowerCase() : 'browser';
@@ -59,14 +87,21 @@ function weatherIdentity(settings) {
 }
 
 function compatibleLastStatus(settings) {
-    if (!lastStatus) return null;
+    const date = formatLocalDate(new Date());
+    const localFields = {
+        date,
+        anniversaries: collectAnniversaries(settings, date),
+        cycle: settings.cycleEnabled ? calculateCycleStatus(settings.cycleStartDate, settings.cycleLength, settings.periodDuration, date) : null,
+        pregnancy: settings.pregnancyEnabled ? calculatePregnancyStatus(settings.pregnancyStartDate, date) : null,
+    };
+    if (!lastStatus) return localFields;
     if (!settings.injectWeather) {
-        return { ...lastStatus, location: null, weather: null };
+        return { ...lastStatus, ...localFields, location: null, weather: null };
     }
     if (lastStatusIdentity === weatherIdentity(settings)) {
-        return lastStatus;
+        return { ...lastStatus, ...localFields };
     }
-    return { ...lastStatus, location: null, weather: null, errors: {} };
+    return { ...lastStatus, ...localFields, location: null, weather: null, errors: {} };
 }
 
 let browserLocationCache = null;
@@ -189,9 +224,16 @@ async function fetchWeatherStatus(settings, browserLocation, forceRefresh) {
 }
 
 async function fetchEnvironmentStatus(settings, forceRefresh = false) {
+    const now = new Date();
+    const date = formatLocalDate(now);
     const result = {
         ok: true,
-        time: { iso: new Date().toISOString(), timeZone: clientTimeZone() },
+        date,
+        time: { iso: now.toISOString(), timeZone: clientTimeZone() },
+        calendar: null,
+        anniversaries: collectAnniversaries(settings, date),
+        cycle: settings.cycleEnabled ? calculateCycleStatus(settings.cycleStartDate, settings.cycleLength, settings.periodDuration, date) : null,
+        pregnancy: settings.pregnancyEnabled ? calculatePregnancyStatus(settings.pregnancyStartDate, date) : null,
         battery: null,
         device: null,
         location: null,
@@ -201,6 +243,16 @@ async function fetchEnvironmentStatus(settings, forceRefresh = false) {
         meta: { forceRefresh },
     };
     const tasks = [];
+
+    if (settings.calendarEnabled) {
+        tasks.push((async () => {
+            try {
+                result.calendar = await getCalendarContext(date, settings.countryCode);
+            } catch (error) {
+                result.errors.calendar = String(error?.message || error);
+            }
+        })());
+    }
 
     if (settings.injectBattery) {
         tasks.push((async () => {
@@ -264,27 +316,51 @@ function resolvePromptPlacement(settings) {
     return { position: extension_prompt_types.IN_CHAT, depth: settings.injectionDepth };
 }
 
+function unregisterEnvironmentMacro() {
+    const context = sillyTavernContext();
+    if (!registeredMacroName || typeof context?.unregisterMacro !== 'function') return;
+    try { context.unregisterMacro(registeredMacroName); } catch {}
+    registeredMacroName = '';
+}
+
+function ensureEnvironmentMacro(settings) {
+    const context = sillyTavernContext();
+    const name = normalizeMacroName(settings.macroName);
+    if (registeredMacroName && registeredMacroName !== name) unregisterEnvironmentMacro();
+    if (registeredMacroName === name) return true;
+    if (typeof context?.registerMacro !== 'function') return false;
+    context.registerMacro(name, () => (
+        typeof context.substituteParams === 'function'
+            ? context.substituteParams(macroPromptCache)
+            : macroPromptCache
+    ));
+    registeredMacroName = name;
+    return true;
+}
+
 function applyPrompt(settings, status) {
-    if (!settings.enabled) {
+    if (!settings.enabled || !matchesBoundCharacter(settings)) {
         clearPrompt();
         return '';
     }
     const prompt = buildEnvironmentPrompt(settings, status, clientTimeZone());
-    const placement = resolvePromptPlacement(settings);
-    setExtensionPrompt(
-        PROMPT_KEY,
-        prompt,
-        placement.position,
-        placement.depth,
-        false,
-        extension_prompt_roles.SYSTEM,
-    );
+    macroPromptCache = prompt;
+    if (settings.injectionMode === 'macro') {
+        setExtensionPrompt(PROMPT_KEY, '', extension_prompt_types.NONE, 0, false, extension_prompt_roles.SYSTEM);
+        if (!ensureEnvironmentMacro(settings)) setUiStatus('当前 SillyTavern 不支持自定义宏，请改用扩展提示词注入。', true);
+    } else {
+        unregisterEnvironmentMacro();
+        const placement = resolvePromptPlacement(settings);
+        setExtensionPrompt(PROMPT_KEY, prompt, placement.position, placement.depth, false, extension_prompt_roles.SYSTEM);
+    }
     updatePreview(prompt, status);
     return prompt;
 }
 
 function clearPrompt() {
     setExtensionPrompt(PROMPT_KEY, '', extension_prompt_types.NONE, 0, false, extension_prompt_roles.SYSTEM);
+    unregisterEnvironmentMacro();
+    macroPromptCache = '';
     updatePreview('', null);
 }
 
@@ -292,8 +368,9 @@ async function refreshEnvironment({ notify = false, forceRefresh = false } = {})
     const settings = currentSettings();
     const sequence = ++requestSequence;
 
-    if (!settings.enabled) {
+    if (!settings.enabled || !matchesBoundCharacter(settings)) {
         clearPrompt();
+        if (settings.enabled) setUiStatus('当前角色卡未绑定，已跳过环境注入。', false);
         return;
     }
 
@@ -384,6 +461,22 @@ function checkbox(label, key, description = '') {
         ${description ? `<small class="environment-context-help">${description}</small>` : ''}`;
 }
 
+function escapeHtml(value) {
+    return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&' + 'quot;').replace(/'/g, '&#39;');
+}
+
+function characterOptions() {
+    return availableCharacters().map(character => `<option value="${escapeHtml(character.id)}">${escapeHtml(character.name)}</option>`).join('');
+}
+
+function anniversaryRows(settings = currentSettings()) {
+    return settings.anniversaries.map(event => `
+        <div class="environment-context-list-row">
+            <span>${escapeHtml(event.name)}｜${escapeHtml(event.date)}</span>
+            <button type="button" class="menu_button environment-context-delete-event" data-event-id="${escapeHtml(event.id)}">删除</button>
+        </div>`).join('') || '<small class="environment-context-help">尚未添加自定义纪念日。</small>';
+}
+
 function buildSettingsHtml() {
     return `
     <div id="environment_context_settings" class="environment-context-settings">
@@ -393,7 +486,15 @@ function buildSettingsHtml() {
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content">
-                <p class="environment-context-intro">生成前读取环境状态，并通过临时扩展提示词注入；不会写入聊天历史。时间和星期优先使用 SillyTavern 官方宏。</p>
+                <p class="environment-context-intro">生成前读取环境状态并临时注入，不会写入聊天历史。时间和星期优先使用 SillyTavern 官方宏。</p>
+
+                <section>
+                    <h4>绑定角色卡</h4>
+                    <select id="environment_context_boundCharacterIds" class="text_pole environment-context-multi-select" multiple data-ec-setting="boundCharacterIds">
+                        ${characterOptions()}
+                    </select>
+                    <small class="environment-context-help">可多选；留空表示所有角色卡均注入。群聊或未选择角色卡时，只有留空配置会注入。</small>
+                </section>
 
                 <section>
                     <h4>总开关</h4>
@@ -412,6 +513,7 @@ function buildSettingsHtml() {
                     ${checkbox('注入天气', 'injectWeather')}
                     <label for="environment_context_weatherProvider">天气提供方</label>
                     <select id="environment_context_weatherProvider" class="text_pole" data-ec-setting="weatherProvider">
+                        <option value="auto">自动（Open-Meteo → MET Norway → wttr.in）</option>
                         <option value="open-meteo">Open-Meteo（免 API Key）</option>
                         <option value="met-norway">MET Norway（免 API Key）</option>
                         <option value="wttr.in">wttr.in（免 API Key）</option>
@@ -451,6 +553,58 @@ function buildSettingsHtml() {
                 </section>
 
                 <section>
+                    <h4>日历</h4>
+                    ${checkbox('注入日历、节假日和调休信息', 'calendarEnabled')}
+                    <label for="environment_context_countryCode">国家/地区</label>
+                    <select id="environment_context_countryCode" class="text_pole" data-ec-setting="countryCode">
+                        <option value="CN">中国（chinese-days：节假日、农历、调休）</option>
+                        <option value="US">美国</option><option value="JP">日本</option><option value="KR">韩国</option>
+                        <option value="GB">英国</option><option value="DE">德国</option><option value="FR">法国</option>
+                        <option value="CA">加拿大</option><option value="AU">澳大利亚</option><option value="RU">俄罗斯</option>
+                    </select>
+                    <small class="environment-context-help">中国使用内置 chinese-days；其他地区使用 Nager.Date 公共 API。</small>
+                </section>
+
+                <section>
+                    <h4>纪念日</h4>
+                    ${checkbox('注入生日与纪念日', 'anniversariesEnabled')}
+                    <label for="environment_context_userBirthday">{{user}} 的生日</label>
+                    <input id="environment_context_userBirthday" class="text_pole" type="text" placeholder="MM-DD 或 YYYY-MM-DD；留空不注入" data-ec-setting="userBirthday" />
+                    <label for="environment_context_charBirthday">{{char}} 的生日</label>
+                    <input id="environment_context_charBirthday" class="text_pole" type="text" placeholder="MM-DD 或 YYYY-MM-DD；留空不注入" data-ec-setting="charBirthday" />
+                    <div class="environment-context-grid environment-context-event-editor">
+                        <input id="environment_context_event_name" class="text_pole" type="text" maxlength="80" placeholder="自定义纪念日名称" />
+                        <input id="environment_context_event_date" class="text_pole" type="text" placeholder="MM-DD 或 YYYY-MM-DD" />
+                    </div>
+                    <button id="environment_context_add_event" class="menu_button" type="button">添加纪念日</button>
+                    <div id="environment_context_event_list">${anniversaryRows()}</div>
+                </section>
+
+                <section>
+                    <h4>经期</h4>
+                    ${checkbox('注入经期状态', 'cycleEnabled')}
+                    <label for="environment_context_cycleOwner">对象</label>
+                    <select id="environment_context_cycleOwner" class="text_pole" data-ec-setting="cycleOwner"><option value="{{user}}">{{user}}</option><option value="{{char}}">{{char}}</option></select>
+                    <label for="environment_context_cycleStartDate">经期起始日期</label>
+                    <input id="environment_context_cycleStartDate" class="text_pole" type="date" data-ec-setting="cycleStartDate" />
+                    <small class="environment-context-help">填写任意一次已知经期开始日期即可，插件会根据周期自动计算最近一次开始时间。</small>
+                    <label for="environment_context_cycleLength">周期时间（天，15–60）</label>
+                    <input id="environment_context_cycleLength" class="text_pole" type="number" min="15" max="60" data-ec-setting="cycleLength" />
+                    <label for="environment_context_periodDuration">经期持续时间（天，1–14）</label>
+                    <input id="environment_context_periodDuration" class="text_pole" type="number" min="1" max="14" data-ec-setting="periodDuration" />
+                </section>
+
+                <section>
+                    <h4>孕期</h4>
+                    ${checkbox('注入孕期状态', 'pregnancyEnabled')}
+                    <label for="environment_context_pregnancyOwner">对象</label>
+                    <select id="environment_context_pregnancyOwner" class="text_pole" data-ec-setting="pregnancyOwner"><option value="{{user}}">{{user}}</option><option value="{{char}}">{{char}}</option></select>
+                    <label for="environment_context_pregnancyStartDate">怀孕时间</label>
+                    <input id="environment_context_pregnancyStartDate" class="text_pole" type="date" data-ec-setting="pregnancyStartDate" />
+                    <small class="environment-context-help">填写怀孕起始日期后，注入孕周、孕期阶段、状态与预产期；留空不注入。</small>
+                </section>
+
+                <section>
                     <h4>电量</h4>
                     ${checkbox('注入电量', 'injectBattery')}
                     ${checkbox('显示充电状态', 'showCharging')}
@@ -477,7 +631,13 @@ function buildSettingsHtml() {
                         <option value="system">系统提示词区域</option>
                         <option value="in_chat">聊天内临时系统消息（推荐）</option>
                         <option value="authors_note">作者注释风格</option>
+                        <option value="macro">宏占位符</option>
                     </select>
+                    <div id="environment_context_macro_block">
+                        <label for="environment_context_macroName">宏名</label>
+                        <input id="environment_context_macroName" class="text_pole" type="text" maxlength="80" placeholder="environment_context" data-ec-setting="macroName" />
+                        <small class="environment-context-help">宏模式不会自动插入扩展提示词。必须在角色卡、系统提示词或预设中写入 <code>{{environment_context}}</code>（宏名改变时同步修改）才会注入。</small>
+                    </div>
                     <div id="environment_context_in_chat_depth_block">
                         <label for="environment_context_injectionDepth">聊天内深度（0–100）</label>
                         <input id="environment_context_injectionDepth" class="text_pole" type="number" min="0" max="100" step="1" data-ec-setting="injectionDepth" />
@@ -486,7 +646,7 @@ function buildSettingsHtml() {
                         <label for="environment_context_authorNoteDepth">作者注释深度（0–100）</label>
                         <input id="environment_context_authorNoteDepth" class="text_pole" type="number" min="0" max="100" step="1" data-ec-setting="authorNoteDepth" />
                     </div>
-                    <small class="environment-context-help">三种方式都使用 setExtensionPrompt()，只参与本次请求上下文，不创建消息、不保存附件、不污染聊天历史。</small>
+                    <small class="environment-context-help">前三种方式使用 setExtensionPrompt() 临时注入；宏模式仅注册自定义宏。所有方式都不创建消息、不保存附件、不污染聊天历史。</small>
                 </section>
 
                 <section>
@@ -507,6 +667,7 @@ function syncUiFromSettings() {
         const key = element.dataset.ecSetting;
         if (!(key in settings)) return;
         if (element.type === 'checkbox') element.checked = Boolean(settings[key]);
+        else if (element.multiple) $(element).val(settings[key]);
         else element.value = String(settings[key]);
     });
     updateConditionalUi(settings);
@@ -519,17 +680,39 @@ function updateConditionalUi(settings = currentSettings()) {
     $('#environment_context_reverse_geocoding_block').toggle(settings.locationMode === 'auto');
     $('#environment_context_in_chat_depth_block').toggle(settings.injectionMode === 'in_chat');
     $('#environment_context_author_depth_block').toggle(settings.injectionMode === 'authors_note');
+    $('#environment_context_macro_block').toggle(settings.injectionMode === 'macro');
 }
 
 function bindSettingsEvents() {
     $('#environment_context_settings [data-ec-setting]').on('change input', function () {
         const key = this.dataset.ecSetting;
-        const value = this.type === 'checkbox' ? this.checked : this.value;
+        const value = this.type === 'checkbox' ? this.checked : this.multiple ? $(this).val() || [] : this.value;
         saveSetting(key, value);
         const settings = currentSettings();
         updateConditionalUi(settings);
         if (!settings.enabled) clearPrompt();
         else applyPrompt(settings, compatibleLastStatus(settings));
+    });
+
+    $('#environment_context_add_event').on('click', function () {
+        const name = String($('#environment_context_event_name').val() || '').trim();
+        const date = String($('#environment_context_event_date').val() || '').trim();
+        if (!name || !/^(?:\d{4}-)?\d{2}-\d{2}$/.test(date)) {
+            toastr.warning('请填写纪念日名称，以及 MM-DD 或 YYYY-MM-DD 格式的日期。', '环境上下文');
+            return;
+        }
+        const settings = currentSettings();
+        saveSetting('anniversaries', [...settings.anniversaries, { id: `event-${Date.now()}`, name, date, type: 'anniversary' }]);
+        $('#environment_context_event_name, #environment_context_event_date').val('');
+        $('#environment_context_event_list').html(anniversaryRows());
+        applyPrompt(currentSettings(), compatibleLastStatus(currentSettings()));
+    });
+
+    $('#environment_context_event_list').on('click', '.environment-context-delete-event', function () {
+        const id = String(this.dataset.eventId || '');
+        saveSetting('anniversaries', currentSettings().anniversaries.filter(event => event.id !== id));
+        $('#environment_context_event_list').html(anniversaryRows());
+        applyPrompt(currentSettings(), compatibleLastStatus(currentSettings()));
     });
 
     $('#environment_context_test').on('click', async function () {
@@ -554,5 +737,6 @@ jQuery(async () => {
     syncUiFromSettings();
     bindSettingsEvents();
     eventSource.on(event_types.GENERATION_AFTER_COMMANDS, onGenerationAfterCommands);
+    if (event_types.CHAT_CHANGED) eventSource.on(event_types.CHAT_CHANGED, () => refreshEnvironment({ notify: false }));
     await refreshEnvironment({ notify: false });
 });

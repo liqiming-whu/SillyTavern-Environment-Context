@@ -1,6 +1,8 @@
 const HTTP_TIMEOUT_MS = 10_000;
 const MAX_HTTP_BODY_BYTES = 1_000_000;
-const PROVIDERS = new Set(['open-meteo', 'met-norway', 'wttr.in']);
+const WEATHER_PROVIDER_ORDER = ['open-meteo', 'met-norway', 'wttr.in'];
+const PROVIDERS = new Set(['auto', ...WEATHER_PROVIDER_ORDER]);
+const WEATHER_PROVIDER_NAMES = { 'open-meteo': 'Open-Meteo', 'met-norway': 'MET Norway', 'wttr.in': 'wttr.in' };
 
 const WMO_CONDITIONS_ZH = {
     0: '晴', 1: '大部晴朗', 2: '局部多云', 3: '阴', 45: '雾', 48: '雾凇',
@@ -433,20 +435,33 @@ async function fetchWttr(location, requestJson) {
 }
 
 async function fetchWeather(provider, location, requestJson) {
+    const loaders = {
+        'open-meteo': fetchOpenMeteo,
+        'met-norway': fetchMetNorway,
+        'wttr.in': fetchWttr,
+    };
+    if (provider === 'auto') {
+        const failures = [];
+        for (const candidate of WEATHER_PROVIDER_ORDER) {
+            try {
+                return {
+                    ...await loaders[candidate](location, requestJson),
+                    fallbackErrors: failures,
+                };
+            } catch (error) {
+                failures.push(`${WEATHER_PROVIDER_NAMES[candidate]}：${safeError(error)}`);
+            }
+        }
+        throw new Error(`所有天气提供方均失败：${failures.join('；')}`);
+    }
     try {
-        if (provider === 'open-meteo') return await fetchOpenMeteo(location, requestJson);
-        if (provider === 'met-norway') return await fetchMetNorway(location, requestJson);
-        if (provider === 'wttr.in') return await fetchWttr(location, requestJson);
-        throw new Error(`不支持的天气提供方：${provider}`);
+        if (!loaders[provider]) throw new Error(`不支持的天气提供方：${provider}`);
+        return await loaders[provider](location, requestJson);
     } catch (error) {
         if (provider === 'open-meteo') throw error;
         const providerError = safeError(error);
         try {
-            return {
-                ...await fetchOpenMeteo(location, requestJson),
-                fallbackFrom: provider,
-                fallbackError: providerError,
-            };
+            return { ...await fetchOpenMeteo(location, requestJson), fallbackFrom: provider, fallbackError: providerError };
         } catch (fallbackError) {
             throw new Error(`${provider} 失败：${providerError}；Open-Meteo 回退也失败：${safeError(fallbackError)}`);
         }
@@ -563,7 +578,9 @@ function createStatusService(dependencies = {}) {
                 if (result.weather.stale && result.weather.refreshError) {
                     errors.weather = result.weather.refreshError;
                 }
-                if (result.weather.fallbackFrom) {
+                if (result.weather.fallbackErrors?.length) {
+                    result.warnings.weather = `${result.weather.fallbackErrors.join('；')}；已使用 ${result.weather.source}`;
+                } else if (result.weather.fallbackFrom) {
                     result.warnings.weather = `${result.weather.fallbackFrom} 暂不可用（${result.weather.fallbackError}），已回退到 Open-Meteo`;
                 }
                 if (result.weather.timeZone) result.time.timeZone = result.weather.timeZone;

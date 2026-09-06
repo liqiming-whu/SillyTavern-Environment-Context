@@ -4,7 +4,7 @@
 
 开发可从 SillyTavern Git URL 直接安装的跨平台环境上下文 UI Extension，在生成前按设置注入时间、星期、天气、地点、电量与设备信息，不依赖 Server Plugin、Termux:API 或平台私有接口。
 
-## v1.2.0 成功标准
+## v2.0.0 成功标准
 
 - 仓库根目录直接包含标准 `manifest.json`、入口 JS、CSS 和模块文件，可被 `/api/extensions/install` 克隆并读取 manifest。
 - 天气、地理编码、缓存全部迁入浏览器；无需 `enableServerPlugins`。
@@ -13,6 +13,10 @@
 - 浏览器不提供的系统设备名称改为可编辑名称；不伪造型号。
 - 保持 `setExtensionPrompt()` 临时注入、深度 1 默认值和聊天历史不落盘。
 - 三天气源、自动定位、电量与设备信息失败互不阻塞。
+- 天气提供方支持 auto，按 Open-Meteo → MET Norway → wttr.in 顺序容错。
+- 设置页顶部支持角色卡多选，留空全部注入；支持 setExtensionPrompt 与自定义宏两类注入链路。
+- 日历支持中国 chinese-days 节假日/农历/调休及其他地区 Nager.Date 公共假日。
+- 支持 {{user}}/{{char}} 生日、自定义纪念日、经期自动推算和孕期追踪。
 - 完成自动测试、CORS 实测、根目录实装、Git URL 安装/更新和发布归档。
 
 ## 当前状态
@@ -31,6 +35,9 @@
 - [x] 创建公开 GitHub 仓库并 push；通过 SillyTavern `/api/extensions/install` 从仓库 URL 安装成功。
 - [x] push 空值修复后，通过 SillyTavern `/api/extensions/update` 更新到 `a448e38`，确认假体感 0°C 已消失。
 - [x] 导出 v1.2.0 发布归档；SHA-256 记录在工作区项目状态。
+- [x] v2.0.0 实现天气 auto、角色卡多选、宏注入、日历、生日/纪念日、经期和孕期，固定引入 chinese-days 1.5.9 及 MIT 许可证。
+- [x] v2.0.0 共 36 项自动测试与六个根模块语法检查通过，真实 chinese-days 2026 国庆/农历结果验证通过。
+- [ ] 在真实 SillyTavern 页面验证角色卡多选、宏注册、纪念日增删、日历/经期/孕期 UI 与生成前注入。
 - [ ] 真实模型生成由用户正常聊天时观察，避免主动产生模型费用或修改现有聊天。
 
 ## 兼容与风险

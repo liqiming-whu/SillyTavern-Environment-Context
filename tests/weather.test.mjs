@@ -210,6 +210,27 @@ test('反向地址解析 auto 按 Nominatim、BigDataCloud、Photon 顺序容错
     assert.match(status.warnings.location, /Nominatim.*offline.*BigDataCloud.*offline.*已使用 Photon/);
 });
 
+test('天气 auto 按 Open-Meteo、MET Norway、wttr.in 顺序容错', async () => {
+    const calls = [];
+    const service = createStatusService({ requestJson: async (url) => {
+        if (url.hostname === 'geocoding-api.open-meteo.com') {
+            return { results: [{ name: '测试市', latitude: 30, longitude: 110, timezone: 'Asia/Shanghai' }] };
+        }
+        if (url.hostname === 'api.open-meteo.com') { calls.push('open-meteo'); throw new Error('Open-Meteo offline'); }
+        if (url.hostname === 'api.met.no') { calls.push('met-norway'); throw new Error('MET Norway offline'); }
+        if (url.hostname === 'wttr.in') {
+            calls.push('wttr.in');
+            return { current_condition: [{ weatherCode: '116', temp_C: '26', FeelsLikeC: '27', humidity: '60', windspeedKmph: '5', winddir16Point: 'E' }] };
+        }
+        throw new Error(`unexpected URL ${url}`);
+    } });
+    const status = await service({ weather: '1', provider: 'auto', locationMode: 'manual', location: '测试市', force: '1' });
+    assert.equal(status.ok, true);
+    assert.equal(status.weather.source, 'wttr.in');
+    assert.deepEqual(calls, ['open-meteo', 'met-norway', 'wttr.in']);
+    assert.match(status.warnings.weather, /Open-Meteo.*offline.*MET Norway.*offline.*已使用 wttr\.in/);
+});
+
 test('非 Open-Meteo 提供方失败时回退并给出明确警告', async () => {
     const service = createStatusService({ requestJson: async (url) => {
         if (url.hostname === 'geocoding-api.open-meteo.com') {
