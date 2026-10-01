@@ -1,5 +1,7 @@
 # SillyTavern Environment Context
 
+[![Linux.do](https://img.shields.io/badge/Linux.do-Community-00A67D?style=flat-square)](https://linux.do)
+
 为 SillyTavern 在生成前注入现实时间、天气、地点、日历、纪念日、生理状态、电量和设备信息的跨平台 UI Extension。所有信息均通过临时扩展提示词或自定义宏参与请求，不修改 SillyTavern 本体，也不写入聊天历史。
 
 ## 功能
